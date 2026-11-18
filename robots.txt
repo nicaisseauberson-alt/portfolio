@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://nicaisseauberson.ch/sitemap.xml
+Sitemap: https://portfolio.nicaisseauberson.workers.dev/sitemap.xml
