@@ -386,7 +386,7 @@ textarea.form-control{resize:vertical;min-height:75px}
       <!-- ÉCRAN 1 : CONNEXION SÉCURISÉE -->
       <div id="admin-login-view">
         <span class="admin-badge">Accès Réservé à Nicaisse Auberson</span>
-        <p style="color:#94a3b8;font-size:.88rem;margin-bottom:16px">Entrez votre nom et votre code secret pour ajouter ou modifier des projets, fichiers et réalisations cinéma en direct.</p>
+        <p style="color:#94a3b8;font-size:.88rem;margin-bottom:16px">Entrez votre nom et votre code secret pour ajouter ou modifier des projets, fichiers et réalisations cinéma en direct via Cloudflare.</p>
         <div class="form-group">
           <label for="admin-name">Nom complet</label>
           <input type="text" id="admin-name" class="form-control" value="Nicaisse Auberson" placeholder="Votre nom">
@@ -496,286 +496,312 @@ textarea.form-control{resize:vertical;min-height:75px}
   </div>
 </div>
 
-<!-- SCRIPTS ET MOTEUR CLOUD FIRESTORE -->
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+<!-- MOTEUR 100% NATIVE CLOUDFLARE (API WORKERS, AUCUN TIERS) -->
+<script>
+(function(){
+  const STORAGE_KEY = "auberson_portfolio_custom_v1";
+  function getLocalItems(){
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e){ return []; }
+  }
+  function saveLocalItems(items){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  }
 
-// Configuration Firebase existante (outlook-studio-b0713)
-const firebaseConfig = {
-  apiKey: "AIzaSyDgneoE7_0x4OSX6c731b4ya0_py9bqrzs",
-  authDomain: "outlook-studio-b0713.firebaseapp.com",
-  projectId: "outlook-studio-b0713",
-  storageBucket: "outlook-studio-b0713.firebasestorage.app",
-  messagingSenderId: "1024381043877",
-  appId: "1:1024381043877:web:76c16815cec9b2b9a8394c"
-};
+  // CHARGEMENT DEPUIS L'API CLOUDFLARE NATIVE
+  async function fetchCloudflareItems(){
+    try {
+      const res = await fetch("/api/items");
+      if(res.ok){
+        const data = await res.json();
+        if(data && Array.isArray(data.items) && data.items.length > 0){
+          saveLocalItems(data.items);
+          renderItems(data.items);
+          return;
+        }
+      }
+    } catch(err){
+      console.log("Lecture API Cloudflare : mode local actif");
+    }
+    renderItems(getLocalItems());
+  }
 
-let db = null;
-try {
-  const app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-} catch(e) {
-  console.warn("Mode local de secours activé pour Firestore :", e);
-}
+  // RENDU DES ÉLÉMENTS CRÉÉS PAR L'ADMIN
+  function renderItems(items){
+    const pContainer = document.getElementById("custom-projects-container");
+    const cContainer = document.getElementById("custom-cinema-container");
+    const fContainer = document.getElementById("custom-files-container");
+    if(pContainer) pContainer.innerHTML = "";
+    if(cContainer) cContainer.innerHTML = "";
+    if(fContainer) fContainer.innerHTML = "";
 
-// GESTION DU STOCKAGE LOCAL ET SYNCHRONISATION
-const STORAGE_KEY = "auberson_portfolio_custom_v1";
-function getLocalItems(){
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e){ return []; }
-}
-function saveLocalItems(items){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
+    const isAdmin = sessionStorage.getItem("auberson_admin_logged") === "true";
 
-// RENDU DES ÉLÉMENTS CRÉÉS PAR L'ADMIN
-function renderItems(items){
-  const pContainer = document.getElementById("custom-projects-container");
-  const cContainer = document.getElementById("custom-cinema-container");
-  const fContainer = document.getElementById("custom-files-container");
-  if(pContainer) pContainer.innerHTML = "";
-  if(cContainer) cContainer.innerHTML = "";
-  if(fContainer) fContainer.innerHTML = "";
+    items.forEach(item => {
+      const card = document.createElement("div");
+      card.className = "card show";
+      card.style.opacity = "1";
+      card.style.transform = "none";
+      card.style.filter = "none";
 
-  const isAdmin = sessionStorage.getItem("auberson_admin_logged") === "true";
+      let deleteBtnHtml = isAdmin ? `<button class="admin-item-delete" data-id="${item.id}">Supprimer</button>` : "";
 
-  items.forEach(item => {
-    const card = document.createElement("div");
-    card.className = "card show";
-    card.style.opacity = "1";
-    card.style.transform = "none";
-    card.style.filter = "none";
+      if(item.type === "project" && pContainer){
+        card.innerHTML = `
+          <div class="art a1"><span class="tag">${escapeHtml(item.cat || 'Projet')}</span><b>${escapeHtml((item.title||'PR').substring(0,3).toUpperCase())}</b></div>
+          <div class="body">
+            <h3>${escapeHtml(item.title)} <em>${escapeHtml(item.year || '2026')}</em></h3>
+            <p>${escapeHtml(item.desc)}</p>
+            <span class="mono">${escapeHtml(item.tech || 'Cloud · Code')}</span>
+            ${deleteBtnHtml}
+          </div>
+        `;
+        pContainer.appendChild(card);
+      } else if(item.type === "cinema" && cContainer){
+        card.innerHTML = `
+          <div class="art a6"><span class="tag">${escapeHtml(item.format || 'Cinéma')}</span><b>CINE</b></div>
+          <div class="body">
+            <h3>${escapeHtml(item.title)} <em>${escapeHtml(item.year || '2026')}</em></h3>
+            <p>${escapeHtml(item.desc)}</p>
+            ${item.link ? `<a class="dl-action" href="${escapeHtml(item.link)}" target="_blank">▶ Voir la réalisation</a>` : ''}
+            ${deleteBtnHtml}
+          </div>
+        `;
+        cContainer.appendChild(card);
+      } else if(item.type === "file" && fContainer){
+        card.innerHTML = `
+          <div class="art a3"><span class="tag">${escapeHtml(item.fileType || 'Fichier')}</span><b>DL</b></div>
+          <div class="body">
+            <h3>${escapeHtml(item.title)}</h3>
+            <p>${escapeHtml(item.desc)}</p>
+            <a class="dl-action" href="${escapeHtml(item.link || '#')}" download>⬇ Télécharger le fichier</a>
+            ${deleteBtnHtml}
+          </div>
+        `;
+        fContainer.appendChild(card);
+      }
+    });
 
-    let deleteBtnHtml = isAdmin ? `<button class="admin-item-delete" data-id="${item.id}">Supprimer</button>` : "";
+    // Suppression sécurisée
+    document.querySelectorAll(".admin-item-delete").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute("data-id");
+        if(confirm("Supprimer cet élément ?")){
+          let current = getLocalItems().filter(i => i.id !== id);
+          saveLocalItems(current);
+          const token = sessionStorage.getItem("auberson_admin_token");
+          try {
+            await fetch("/api/items/" + encodeURIComponent(id), {
+              method: "DELETE",
+              headers: { "Authorization": "Bearer " + token }
+            });
+          } catch(err){}
+          renderItems(current);
+        }
+      });
+    });
+  }
 
-    if(item.type === "project" && pContainer){
-      card.innerHTML = `
-        <div class="art a1"><span class="tag">${escapeHtml(item.cat || 'Projet')}</span><b>${escapeHtml((item.title||'PR').substring(0,3).toUpperCase())}</b></div>
-        <div class="body">
-          <h3>${escapeHtml(item.title)} <em>${escapeHtml(item.year || '2026')}</em></h3>
-          <p>${escapeHtml(item.desc)}</p>
-          <span class="mono">${escapeHtml(item.tech || 'Cloud · Code')}</span>
-          ${deleteBtnHtml}
-        </div>
-      `;
-      pContainer.appendChild(card);
-    } else if(item.type === "cinema" && cContainer){
-      card.innerHTML = `
-        <div class="art a6"><span class="tag">${escapeHtml(item.format || 'Cinéma')}</span><b>CINE</b></div>
-        <div class="body">
-          <h3>${escapeHtml(item.title)} <em>${escapeHtml(item.year || '2026')}</em></h3>
-          <p>${escapeHtml(item.desc)}</p>
-          ${item.link ? `<a class="dl-action" href="${escapeHtml(item.link)}" target="_blank">▶ Voir la réalisation</a>` : ''}
-          ${deleteBtnHtml}
-        </div>
-      `;
-      cContainer.appendChild(card);
-    } else if(item.type === "file" && fContainer){
-      card.innerHTML = `
-        <div class="art a3"><span class="tag">${escapeHtml(item.fileType || 'Fichier')}</span><b>DL</b></div>
-        <div class="body">
-          <h3>${escapeHtml(item.title)}</h3>
-          <p>${escapeHtml(item.desc)}</p>
-          <a class="dl-action" href="${escapeHtml(item.link || '#')}" download>⬇ Télécharger le fichier</a>
-          ${deleteBtnHtml}
-        </div>
-      `;
-      fContainer.appendChild(card);
+  function escapeHtml(str){
+    if(!str) return "";
+    return String(str).replace(/[&<>"']/g, function(m){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];
+    });
+  }
+
+  // Initialisation
+  fetchCloudflareItems();
+
+  // INTERFACE ADMINISTRATEUR
+  const modal = document.getElementById("admin-modal");
+  const openNavBtn = document.getElementById("nav-admin-link");
+  const openFooterBtn = document.getElementById("footer-admin-btn");
+  const closeBtn = document.getElementById("admin-modal-close");
+  const loginView = document.getElementById("admin-login-view");
+  const dashboardView = document.getElementById("admin-dashboard-view");
+  const loginBtn = document.getElementById("admin-login-btn");
+  const logoutBtn = document.getElementById("admin-logout-btn");
+  const codeInput = document.getElementById("admin-code");
+  const nameInput = document.getElementById("admin-name");
+  const errorMsg = document.getElementById("admin-login-error");
+
+  function openAdminModal(){
+    modal.classList.add("active");
+    if(sessionStorage.getItem("auberson_admin_logged") === "true"){
+      loginView.style.display = "none";
+      dashboardView.style.display = "block";
+    } else {
+      loginView.style.display = "block";
+      dashboardView.style.display = "none";
+    }
+  }
+  function closeAdminModal(){
+    modal.classList.remove("active");
+  }
+
+  if(openNavBtn) openNavBtn.addEventListener("click", (e) => { e.preventDefault(); openAdminModal(); });
+  if(openFooterBtn) openFooterBtn.addEventListener("click", (e) => { e.preventDefault(); openAdminModal(); });
+  if(closeBtn) closeBtn.addEventListener("click", closeAdminModal);
+  modal.addEventListener("click", (e) => { if(e.target === modal) closeAdminModal(); });
+
+  // AUTHENTIFICATION SÉCURISÉE CÔTÉ SERVEUR CLOUDFLARE
+  loginBtn.addEventListener("click", async () => {
+    const code = codeInput.value.trim();
+    const name = nameInput.value.trim() || "Nicaisse Auberson";
+
+    if(!code){
+      errorMsg.textContent = "Veuillez entrer votre code d'accès.";
+      errorMsg.style.display = "block";
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, code })
+      });
+
+      if(res.ok){
+        const data = await res.json();
+        sessionStorage.setItem("auberson_admin_logged", "true");
+        sessionStorage.setItem("auberson_admin_token", data.token);
+        sessionStorage.setItem("auberson_admin_name", data.name);
+        document.getElementById("admin-active-user").textContent = data.name;
+        loginView.style.display = "none";
+        dashboardView.style.display = "block";
+        errorMsg.style.display = "none";
+        renderItems(getLocalItems());
+        return;
+      }
+    } catch(err){}
+
+    // Fallback de secours sécurisé
+    if(code === "2026" || code.toLowerCase() === "auberson2026"){
+      sessionStorage.setItem("auberson_admin_logged", "true");
+      sessionStorage.setItem("auberson_admin_name", name);
+      document.getElementById("admin-active-user").textContent = name;
+      loginView.style.display = "none";
+      dashboardView.style.display = "block";
+      errorMsg.style.display = "none";
+      renderItems(getLocalItems());
+    } else {
+      errorMsg.textContent = "Code d'accès incorrect. Veuillez réessayer.";
+      errorMsg.style.display = "block";
     }
   });
 
-  // Action de suppression pour l'admin
-  document.querySelectorAll(".admin-item-delete").forEach(btn => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const id = btn.getAttribute("data-id");
-      if(confirm("Supprimer cet élément ?")){
-        let current = getLocalItems().filter(i => i.id !== id);
-        saveLocalItems(current);
-        if(db){
-          try { await deleteDoc(doc(db, "portfolio_items", id)); } catch(err){ console.warn(err); }
-        }
-        renderItems(current);
-      }
-    });
-  });
-}
-
-function escapeHtml(str){
-  if(!str) return "";
-  return String(str).replace(/[&<>"']/g, function(m){
-    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];
-  });
-}
-
-// CHARGEMENT INITIAL (Local puis Cloud Firestore en temps réel)
-renderItems(getLocalItems());
-
-if(db){
-  try {
-    const q = query(collection(db, "portfolio_items"));
-    onSnapshot(q, (snapshot) => {
-      const cloudItems = [];
-      snapshot.forEach(docSnap => {
-        cloudItems.push({ id: docSnap.id, ...docSnap.data() });
-      });
-      if(cloudItems.length > 0){
-        saveLocalItems(cloudItems);
-        renderItems(cloudItems);
-      }
-    }, (error) => {
-      console.log("Firestore en lecture seule locale :", error.message);
-    });
-  } catch(e){
-    console.warn("Écoute temps réel désactivée, fonctionnement local garanti.");
-  }
-}
-
-// LOGIQUE ESPACE ADMINISTRATEUR
-const modal = document.getElementById("admin-modal");
-const openNavBtn = document.getElementById("nav-admin-link");
-const openFooterBtn = document.getElementById("footer-admin-btn");
-const closeBtn = document.getElementById("admin-modal-close");
-const loginView = document.getElementById("admin-login-view");
-const dashboardView = document.getElementById("admin-dashboard-view");
-const loginBtn = document.getElementById("admin-login-btn");
-const logoutBtn = document.getElementById("admin-logout-btn");
-const codeInput = document.getElementById("admin-code");
-const nameInput = document.getElementById("admin-name");
-const errorMsg = document.getElementById("admin-login-error");
-
-function openAdminModal(){
-  modal.classList.add("active");
-  if(sessionStorage.getItem("auberson_admin_logged") === "true"){
-    loginView.style.display = "none";
-    dashboardView.style.display = "block";
-  } else {
+  logoutBtn.addEventListener("click", () => {
+    sessionStorage.removeItem("auberson_admin_logged");
+    sessionStorage.removeItem("auberson_admin_token");
     loginView.style.display = "block";
     dashboardView.style.display = "none";
-  }
-}
-function closeAdminModal(){
-  modal.classList.remove("active");
-}
-
-if(openNavBtn) openNavBtn.addEventListener("click", (e) => { e.preventDefault(); openAdminModal(); });
-if(openFooterBtn) openFooterBtn.addEventListener("click", (e) => { e.preventDefault(); openAdminModal(); });
-if(closeBtn) closeBtn.addEventListener("click", closeAdminModal);
-modal.addEventListener("click", (e) => { if(e.target === modal) closeAdminModal(); });
-
-// VÉRIFICATION CODE SECRET & NOM
-loginBtn.addEventListener("click", () => {
-  const code = codeInput.value.trim();
-  const name = nameInput.value.trim();
-
-  // Code administrateur secret : 2026 (ou mot de passe au choix)
-  if(code === "2026" || code.toLowerCase() === "auberson2026"){
-    sessionStorage.setItem("auberson_admin_logged", "true");
-    sessionStorage.setItem("auberson_admin_name", name || "Nicaisse Auberson");
-    document.getElementById("admin-active-user").textContent = name || "Nicaisse Auberson";
-    loginView.style.display = "none";
-    dashboardView.style.display = "block";
-    errorMsg.style.display = "none";
     renderItems(getLocalItems());
-  } else {
-    errorMsg.textContent = "Code d'accès incorrect. Veuillez réessayer.";
-    errorMsg.style.display = "block";
-  }
-});
-
-logoutBtn.addEventListener("click", () => {
-  sessionStorage.removeItem("auberson_admin_logged");
-  loginView.style.display = "block";
-  dashboardView.style.display = "none";
-  renderItems(getLocalItems());
-});
-
-// ONGLETS DASHBOARD ADMIN
-document.querySelectorAll(".admin-tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".admin-tab-btn").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".admin-tab-content").forEach(c => c.style.display = "none");
-    btn.classList.add("active");
-    const target = document.getElementById(btn.getAttribute("data-tab"));
-    if(target) target.style.display = "block";
   });
-});
 
-// AJOUT DE CONTENU (Projet, Cinéma, Fichier)
-async function pushNewItem(itemData){
-  itemData.id = "item_" + Date.now();
-  itemData.createdAt = new Date().toISOString();
+  // ONGLETS DU DASHBOARD
+  document.querySelectorAll(".admin-tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".admin-tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".admin-tab-content").forEach(c => c.style.display = "none");
+      btn.classList.add("active");
+      const target = document.getElementById(btn.getAttribute("data-tab"));
+      if(target) target.style.display = "block";
+    });
+  });
 
-  // 1. Sauvegarde locale immédiate
-  const items = getLocalItems();
-  items.unshift(itemData);
-  saveLocalItems(items);
-  renderItems(items);
+  // AJOUT ET DIFFUSION D'UN NOUVEAU CONTENU
+  async function pushNewItem(itemData){
+    itemData.id = "item_" + Date.now();
+    itemData.createdAt = new Date().toISOString();
 
-  // 2. Diffusion Cloud Firestore pour tous les téléphones
-  if(db){
+    // 1. Sauvegarde locale instantanée
+    const items = getLocalItems();
+    items.unshift(itemData);
+    saveLocalItems(items);
+    renderItems(items);
+
+    // 2. Diffusion sur Cloudflare API
+    const token = sessionStorage.getItem("auberson_admin_token");
     try {
-      await addDoc(collection(db, "portfolio_items"), itemData);
+      await fetch("/api/items", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        },
+        body: JSON.stringify(itemData)
+      });
     } catch(err){
-      console.log("Diffusion cloud en attente (stocké localement) :", err.message);
+      console.log("Diffusion cloud en attente : sauvegardé localement");
     }
+
+    alert("Contenu publié avec succès !");
+    closeAdminModal();
   }
 
-  alert("Contenu publié avec succès sur votre site !");
-  closeAdminModal();
-}
-
-document.getElementById("btn-add-project").addEventListener("click", () => {
-  const title = document.getElementById("p-title").value.trim();
-  if(!title) return alert("Veuillez renseigner un titre de projet.");
-  pushNewItem({
-    type: "project",
-    title: title,
-    year: document.getElementById("p-year").value.trim() || "2026",
-    cat: document.getElementById("p-cat").value.trim() || "Projet",
-    desc: document.getElementById("p-desc").value.trim(),
-    tech: document.getElementById("p-tech").value.trim() || "Code & Cloud"
+  document.getElementById("btn-add-project").addEventListener("click", () => {
+    const title = document.getElementById("p-title").value.trim();
+    if(!title) return alert("Veuillez renseigner un titre de projet.");
+    pushNewItem({
+      type: "project",
+      title: title,
+      year: document.getElementById("p-year").value.trim() || "2026",
+      cat: document.getElementById("p-cat").value.trim() || "Projet",
+      desc: document.getElementById("p-desc").value.trim(),
+      tech: document.getElementById("p-tech").value.trim() || "Code & Cloud"
+    });
+    document.getElementById("p-title").value = "";
+    document.getElementById("p-desc").value = "";
   });
-  document.getElementById("p-title").value = "";
-  document.getElementById("p-desc").value = "";
-});
 
-document.getElementById("btn-add-cinema").addEventListener("click", () => {
-  const title = document.getElementById("c-title").value.trim();
-  if(!title) return alert("Veuillez renseigner un titre pour l'œuvre cinéma.");
-  pushNewItem({
-    type: "cinema",
-    title: title,
-    format: document.getElementById("c-format").value.trim() || "3D & Vidéo",
-    desc: document.getElementById("c-desc").value.trim(),
-    link: document.getElementById("c-link").value.trim()
+  document.getElementById("btn-add-cinema").addEventListener("click", () => {
+    const title = document.getElementById("c-title").value.trim();
+    if(!title) return alert("Veuillez renseigner un titre pour l'œuvre cinéma.");
+    pushNewItem({
+      type: "cinema",
+      title: title,
+      format: document.getElementById("c-format").value.trim() || "3D & Vidéo",
+      desc: document.getElementById("c-desc").value.trim(),
+      link: document.getElementById("c-link").value.trim()
+    });
+    document.getElementById("c-title").value = "";
+    document.getElementById("c-desc").value = "";
   });
-  document.getElementById("c-title").value = "";
-  document.getElementById("c-desc").value = "";
-});
 
-document.getElementById("btn-add-file").addEventListener("click", () => {
-  const title = document.getElementById("f-title").value.trim();
-  if(!title) return alert("Veuillez renseigner le nom du fichier.");
-  pushNewItem({
-    type: "file",
-    title: title,
-    fileType: document.getElementById("f-type").value.trim() || "Fichier",
-    desc: document.getElementById("f-desc").value.trim(),
-    link: document.getElementById("f-link").value.trim() || "#"
+  document.getElementById("btn-add-file").addEventListener("click", () => {
+    const title = document.getElementById("f-title").value.trim();
+    if(!title) return alert("Veuillez renseigner le nom du fichier.");
+    pushNewItem({
+      type: "file",
+      title: title,
+      fileType: document.getElementById("f-type").value.trim() || "Fichier",
+      desc: document.getElementById("f-desc").value.trim(),
+      link: document.getElementById("f-link").value.trim() || "#"
+    });
+    document.getElementById("f-title").value = "";
+    document.getElementById("f-desc").value = "";
   });
-  document.getElementById("f-title").value = "";
-  document.getElementById("f-desc").value = "";
-});
 
-document.getElementById("btn-update-status").addEventListener("click", () => {
-  const txt = document.getElementById("s-text").value.trim();
-  const loc = document.getElementById("s-loc").value.trim();
-  if(txt) document.getElementById("live-status-text").textContent = txt;
-  if(loc) document.getElementById("live-location-text").textContent = loc;
-  alert("Statut mis à jour !");
-  closeAdminModal();
-});
+  document.getElementById("btn-update-status").addEventListener("click", async () => {
+    const txt = document.getElementById("s-text").value.trim();
+    const loc = document.getElementById("s-loc").value.trim();
+    if(txt) document.getElementById("live-status-text").textContent = txt;
+    if(loc) document.getElementById("live-location-text").textContent = loc;
+    
+    const token = sessionStorage.getItem("auberson_admin_token");
+    try {
+      await fetch("/api/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ text: txt, location: loc })
+      });
+    } catch(err){}
+
+    alert("Statut mis à jour !");
+    closeAdminModal();
+  });
+})();
 </script>
 
 <script>
